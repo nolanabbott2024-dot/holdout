@@ -16,3 +16,16 @@ If the GPU loses its context (out of memory) the game drops to High and reloads.
 - Metro district: user-supplied CityGenerator export, textured with CC0 ambientCG / Poly Haven maps
 
 Third-party models keep their own licenses; check redistribution terms before making this public.
+
+
+## Streaming architecture
+```
+boot (~12 MB): lobby packs ─► menu in ~3 s
+Deploy: field packs + Metro mats_lo.glb (0.7 MB) ─► playing
+        └─ 3D Tiles quadtree (assets/metro/tileset.json, 85 tiles, meshopt) streams by camera / screen error
+        └─ background: mats_ktx2.glb (Basis KTX2, GPU-compressed) swaps into shared materials (WebP fallback: mats.glb)
+repeat visits: sw.js serves every content-hashed asset (?v=hash) from Cache Storage
+```
+- Tiles: L0 1 tile (90k tris) → L3 8×8 full detail (6.2M tris total). Tiles carry geometry only; materials resolve by name from the library.
+- 3DTilesRendererJS 0.3.46 and three r128's KTX2Loader are bundled (`assets/lib/`) against the game's global THREE.
+- `HOLDOUT_MANIFEST` in index.html maps every asset to its content hash; tileset content URIs are hashed too.
