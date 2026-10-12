@@ -4,6 +4,10 @@ Browser zombie-apocalypse squad game: base management, overwatch command, first-
 Static site (three.js r128). Assets are meshopt-compressed `.glb` with WebP textures in `assets/`,
 loaded per screen: lobby packs at boot, field packs + the picked map on Deploy.
 
+**Texture quality** (Log tab → Graphics): High = 2K inside the packs. Ultra = 4K maps in `assets/tex4k/`
+(manifest `tex4k.json`) streamed in after the 2K ones show; default on desktop, off on touch devices.
+If the GPU loses its context (out of memory) the game drops to High and reloads.
+
 ## Credits
 - Operators: "Modular Casual Soldier" kit · Survivalist by Slayver (CGTrader)
 - Viewmodels: "Animated AKs-74u" by Vlasov Daniil (CC BY 4.0) · "Mark 23 Animated (Free)" by BarcodeGames / notatree

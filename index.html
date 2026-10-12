@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Holdout</title><script>window.HOLDOUT_WEB=1;window.HOLDOUT_BUILD='88ecf2dfba'</script>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Holdout</title><script>window.HOLDOUT_WEB=1;window.HOLDOUT_BUILD='93ef618bf5'</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
@@ -433,6 +433,10 @@ function renderBase(){
       <b>Overwatch</b>: click a squad member, then click the ground to move them. Nobody selected moves everyone. <kbd>WASD</kbd> pan, wheel zoom, <kbd>1</kbd>–<kbd>4</kbd> select, <kbd>H</kbd> hold fire.<br>
       <b>Take control</b> (<kbd>Tab</kbd>): first person. Click to lock the mouse. <kbd>LMB</kbd> fire, <kbd>RMB</kbd> aim, <kbd>Shift</kbd> sprint, <kbd>C</kbd> crouch (at a sprint it slides), <kbd>Space</kbd> vault or jump, <kbd>Q</kbd> cover, <kbd>F</kbd> kick, <kbd>X</kbd> swap AKS-74U / Mark 23, <kbd>B</kbd> auto/semi, <kbd>E</kbd> search, <kbd>R</kbd> reload.<br>
       On a phone: joystick left, drag right side to look.</div></section>
+    <section class="panel"><h2>Graphics</h2><div class="deploy"><span class="dim">Textures</span>
+      <button class="btn sm ${TEXQ!=='ultra'?'primary':''}" data-act="texq" data-id="high">High · 2K</button>
+      <button class="btn sm ${TEXQ==='ultra'?'primary':''}" data-act="texq" data-id="ultra" ${WEB?'':'disabled'}>Ultra · 4K</button></div>
+      <p class="dim">${WEB?'Ultra streams 4K operator and surface textures after the 2K ones appear. Needs a dedicated GPU; if memory runs out the game drops back to High automatically.':'Ultra (4K) is available on the web build.'}</p></section>
     <section class="panel" id="credits"><h2>Credits</h2><p class="dim">Operators: "Modular Casual Soldier" kit · Survivalist by Slayver (CGTrader) · Viewmodels: "Animated AKs-74u" by Vlasov Daniil (CC BY 4.0), "Mark 23 Animated (Free)" by BarcodeGames / notatree · zombie + rifle animations: Mixamo · city kit, cars, props, Nature Kit: Kenney (CC0) · textures: ambientCG (CC0) · rusty cars + Metro district: user-supplied packs.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-act="lab">Anim Lab</button><button class="btn danger sm" data-act="reset">Wipe save</button></div></section></div>`;
   }
@@ -462,6 +466,7 @@ $('#base').addEventListener('click',e=>{
       t.disabled=true;t.textContent=G.sector==='metro'&&!METRO?'Loading Metro…':'Loading…';ensureAnims().then(()=>G.sector==='metro'?ensureMetro():0).then(()=>startMission(team));return}
     case'sector':G.sector=id;break;
     case'tab':LTAB=id;break;
+    case'texq':if(id===TEXQ)break;try{localStorage.setItem(TEXQ_KEY,id)}catch(e){}if(id==='high'){location.reload();return}TEXQ=id;T4K=null;t4kDone.clear();upgradeAll();break;
     case'opsel':LSEL=id;LTAB='ops';break;
     case'look':{const sx=G.squad.find(x=>x.id===LSEL);if(sx){lookOf(sx)[t.dataset.k]=+t.dataset.v;lobbyLook(sx)}}break;
     case'lookT':{const sx=G.squad.find(x=>x.id===LSEL);if(sx){const L=lookOf(sx);L[t.dataset.k]=!L[t.dataset.k];lobbyLook(sx)}}break;
@@ -544,6 +549,7 @@ function initThree(){
   renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));renderer.localClippingEnabled=true;
   $('#cv').appendChild(renderer.domElement);
+  renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();if(TEXQ==='ultra'){try{localStorage.setItem(TEXQ_KEY,'high')}catch(_){}location.reload()}});
   scene=new T.Scene();scene.background=new T.Color(0x0a0d11);scene.fog=new T.Fog(0x0a0d11,40,110);
   camO=new T.PerspectiveCamera(48,1,.5,400);
   camF=new T.PerspectiveCamera(70,1,.05,220);camF.rotation.order='YXZ';scene.add(camF);
@@ -707,6 +713,22 @@ const WEB=!!window.HOLDOUT_WEB,AV=window.HOLDOUT_BUILD||'1';
 async function pack(name,key,sub){
   if(WEB){if(window.MeshoptDecoder&&MeshoptDecoder.ready)await MeshoptDecoder.ready;const r=await fetch('assets/'+name+'.glb?v='+AV);if(!r.ok)throw new Error(name+' '+r.status);return r.arrayBuffer()}
   if(!window[key])await loadScript('holdout_'+key.slice(8,-4).toLowerCase()+'.js');return b64buf(sub?window[key][sub]:window[key])}
+/* ---- Ultra textures (web build only): the packs ship 2K; 4K images swap into the same texture objects after load ---- */
+const TEXQ_KEY='holdout-texq';
+let TEXQ=(()=>{try{return localStorage.getItem(TEXQ_KEY)}catch(e){return null}})()||(matchMedia('(pointer:coarse)').matches?'high':'ultra');
+let T4K=null;const t4kDone=new Set();
+function tex4k(){if(!WEB||TEXQ!=='ultra')return Promise.resolve(null);if(!T4K)T4K=fetch('assets/tex4k.json?v='+AV).then(r=>r.ok?r.json():null).catch(()=>null);return T4K}
+const imgLoad=url=>new Promise((res,rej)=>{const im=new Image();im.crossOrigin='anonymous';im.decoding='async';im.onload=()=>res(im);im.onerror=rej;im.src=url+'?v='+AV});
+async function swapImg(texs,url){texs=texs.filter(Boolean);if(!url||!texs.length)return;try{const im=await imgLoad(url);if(im.decode)await im.decode().catch(()=>{});for(const t of texs){t.image=im;t.needsUpdate=true}}catch(e){console.warn('4K texture failed',url)}}
+async function upgradeSoldier(){const m=await tex4k();if(!m||!m.sold||!SOLD||t4kDone.has('sold'))return;t4kDone.add('sold');
+  const by={};const add=o=>o&&o.traverse(x=>{if(x.isMesh)(by[x.material.name]=by[x.material.name]||new Set()).add(x.material)});add(SOLD.scene);add(SOLD.rifle);
+  for(const k in m.sold){const mats=[...(by[k]||[])];await swapImg(mats.map(x=>x.map),m.sold[k].c);await swapImg(mats.map(x=>x.normalMap),m.sold[k].n)}}
+async function upgradeKit(){const m=await tex4k();if(!m||!m.kit||!KIT||t4kDone.has('kit'))return;t4kDone.add('kit');
+  for(const k in m.kit){const u=KIT.users[k]||{c:[],n:[]};const base=KIT.tex[k]||{};await swapImg([base.c,...u.c],m.kit[k].c);await swapImg([base.n,...u.n],m.kit[k].n)}}
+async function upgradeMetro(){const m=await tex4k();if(!m||!m.metro||!METRO||t4kDone.has('metro'))return;t4kDone.add('metro');
+  for(const k in m.metro){const mats=k==='ground'?[]:METRO.mats.filter(x=>x.name===k);const ground=k==='ground'&&METRO.groundTex?[METRO.groundTex]:[];
+    await swapImg([...mats.map(x=>x.map),...ground],m.metro[k].c);if(mats.length)await swapImg(mats.map(x=>x.normalMap),m.metro[k].n)}}
+function upgradeAll(){upgradeSoldier();upgradeKit();upgradeMetro()}
 async function packJSON(name,key){if(window[key])return window[key];const r=await fetch('assets/'+name+'.json?v='+AV);return window[key]=await r.json()}
 function linearMaps(root){root.traverse(o=>{if(!o.isMesh)return;(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{for(const k of['map','emissiveMap'])if(m[k]){m[k].encoding=T.LinearEncoding;m[k].needsUpdate=true}})})}
 async function loadAnims(){
@@ -725,7 +747,7 @@ async function ensureKit(){if(KIT!==null)return;try{
     if(!grime.has(key)){const c=m.clone();c.color=new T.Color(id.startsWith('car')?0x8a8274:0xa29a8c);c.roughness=.9;c.metalness=0;grime.set(key,c)}o.material=grime.get(key)})}
   const tl=new T.TextureLoader(),tex={};
   for(const k in(window.HOLDOUT_TEX||{})){const t=window.HOLDOUT_TEX[k];const[c,n]=await Promise.all([tl.loadAsync(t.c),tl.loadAsync(t.n)]);tex[k]={c,n}}
-  KIT={tmpl,tex};
+  KIT={tmpl,tex,users:{}};upgradeKit();
 }catch(e){KIT=false;console.warn('Kitbash pack failed, using primitives.',e)}}
 let NATURE=null;
 async function ensureNature(){if(NATURE!==null||!KIT)return;try{
@@ -741,7 +763,7 @@ async function ensureAnims(){await ensureLobby();await Promise.all([ensureArms()
 function kitClone(id){return KIT&&KIT.tmpl[id]?KIT.tmpl[id].clone(true):null}
 function texMat(k,rx,ry,col,rough){
   const o={color:col||0xffffff,roughness:rough||.95};
-  if(KIT&&KIT.tex[k]){const c=KIT.tex[k].c.clone(),n=KIT.tex[k].n.clone();for(const x of[c,n]){x.wrapS=x.wrapT=T.RepeatWrapping;x.repeat.set(rx,ry);x.needsUpdate=true}o.map=c;o.normalMap=n;o.normalScale=new T.Vector2(.8,.8)}
+  if(KIT&&KIT.tex[k]){const c=KIT.tex[k].c.clone(),n=KIT.tex[k].n.clone();const us=KIT.users[k]||(KIT.users[k]={c:[],n:[]});us.c.push(c);us.n.push(n);for(const x of[c,n]){x.wrapS=x.wrapT=T.RepeatWrapping;x.repeat.set(rx,ry);x.needsUpdate=true}o.map=c;o.normalMap=n;o.normalScale=new T.Vector2(.8,.8)}
   return new T.MeshStandardMaterial(o)}
 
 const LOCO={
@@ -848,7 +870,7 @@ async function ensureSoldier(){if(SOLD!==null)return;try{
   const an=renderer?renderer.capabilities.getMaxAnisotropy():4;g.scene.traverse(o=>{if(o.isMesh)for(const k of['map','normalMap'])if(o.material[k]){o.material[k].anisotropy=Math.min(8,an);o.material[k].needsUpdate=true}});
   const rifle=g.scene.getObjectByName('sold_rifle');if(rifle)rifle.parent.remove(rifle);
   g.scene.traverse(o=>{if(o.isMesh){o.frustumCulled=false;o.castShadow=false}});
-  SOLD={scene:g.scene,rifle};
+  SOLD={scene:g.scene,rifle};upgradeSoldier();
 }catch(e){SOLD=false;console.warn('Soldier kit failed.',e)}}
 const LOOK_PARTS={cap:['Cap','SKM_Patch_Flag_Cap'],vest:['Bulletproof','SKM_Patch_Back'],drops:['Drops_1'],holster:['Holster_Hard','Pistol_Leg']};
 // index 0 = the kit's original color; clothes textures are grayscale detail that these tint
@@ -1225,13 +1247,13 @@ async function ensureMetro(){if(METRO!==null)return;try{
   const clip=new T.Plane(new T.Vector3(0,-1,0),4);const mats=[];
   linearMaps(g.scene);const an=renderer?Math.min(8,renderer.capabilities.getMaxAnisotropy()):4;
   g.scene.traverse(o=>{if(!o.isMesh)return;o.frustumCulled=true;o.material=metroMat(o.material,clip,an);mats.push(o.material)});
-  METRO={scene:g.scene,clip,mats};window.HOLDOUT_METRO_OK=true;
+  METRO={scene:g.scene,clip,mats,groundTex:null};window.HOLDOUT_METRO_OK=true;upgradeMetro();
 }catch(e){METRO=false;console.warn('Metro district failed.',e)}}
 function metroMat(src,clip,an){const n=src.name||'';
   if(src.map){// real texture from the district (CC0 originals / stand-ins)
     const m=new T.MeshStandardMaterial({map:src.map,normalMap:src.normalMap||null,color:0xd8d4cc,roughness:.9,metalness:/metal|Metal|hydrant|trash|utility/.test(n)?.25:0,clippingPlanes:[clip],side:T.DoubleSide,flatShading:true});
     for(const t of[m.map,m.normalMap])if(t){t.wrapS=t.wrapT=T.RepeatWrapping;t.anisotropy=an||4;t.needsUpdate=true}
-    if(m.normalMap)m.normalScale=new T.Vector2(.8,.8);return m}
+    if(m.normalMap)m.normalScale=new T.Vector2(.8,.8);m.name=n;return m}
   const m0=metroMat0(n,clip);if(m0.color&&!/Decals|Manhole|Grate/.test(n))m0.color.multiplyScalar(1.1);m0.flatShading=true;m0.normalMap=null;m0.needsUpdate=true;return m0}
 function metroMat0(n,clip){n=n.replace(/^CityGen\s*/,'');const o={color:0x8a8a86,roughness:.9,clippingPlanes:[clip],clipShadows:true,side:T.DoubleSide};let tex=null,rep=1;
   const has=k=>KIT&&KIT.tex&&KIT.tex[k];
@@ -1335,7 +1357,7 @@ function buildScene(){
   const gnd=(x0,x1)=>{const w=x1-x0,m=new T.Mesh(new T.PlaneGeometry(w,S+80),TX?texMat('asphalt',w/7,(S+80)/7,0x5d6064,1):new T.MeshStandardMaterial({color:0x14181c,roughness:1}));
     m.rotation.x=-Math.PI/2;m.position.set((x0+x1)/2,0,S/2);grp0.add(m)};
   const MET=W.sector==='metro'&&!!METRO;
-  if(MET){const am=new T.MeshStandardMaterial({color:0x8a8c90,roughness:1});const AM=window.HOLDOUT_METRO_META&&window.HOLDOUT_METRO_META.asphalt;if(AM){const t=new T.TextureLoader().load(AM);t.wrapS=t.wrapT=T.RepeatWrapping;t.repeat.set((S+80)/3.5,(S+80)/3.5);t.anisotropy=8;am.map=t}
+  if(MET){const am=new T.MeshStandardMaterial({color:0x8a8c90,roughness:1});const AM=window.HOLDOUT_METRO_META&&window.HOLDOUT_METRO_META.asphalt;if(AM){const t=METRO.groundTex||new T.TextureLoader().load(AM);t.wrapS=t.wrapT=T.RepeatWrapping;t.repeat.set((S+80)/3.5,(S+80)/3.5);t.anisotropy=8;am.map=t;if(!METRO.groundTex){METRO.groundTex=t;t4kDone.delete('metro');upgradeMetro()}}
     const m=new T.Mesh(new T.PlaneGeometry(S+80,S+80),am);m.rotation.x=-Math.PI/2;m.position.set(S/2,-.04,S/2);grp0.add(m);grp0.add(METRO.scene)}
   else if(RIV){gnd(-40,RX0);gnd(RX1,S+40)}else gnd(-40,S+40);
   const walkS=[];if(!MET)for(const by of [4,20,36])for(const bx0 of [4,20,36])if(!(RIV&&bx0===20))walkS.push([bx0,by]);
