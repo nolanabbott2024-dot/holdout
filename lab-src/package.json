@@ -1,0 +1,7 @@
+{
+  "name": "holdout-lab",
+  "private": true,
+  "scripts": { "build": "esbuild src/main.ts --bundle --minify --format=esm --target=es2020 --outfile=../lab/lab.js" },
+  "dependencies": { "@babylonjs/core": "9.30.0", "@babylonjs/loaders": "9.30.0", "3d-tiles-renderer": "0.5.3" },
+  "devDependencies": { "esbuild": "0.21.5" }
+}
