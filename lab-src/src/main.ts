@@ -21,6 +21,7 @@ const qp = new URLSearchParams(location.search).get('q') as Q | null;
 let saved: Q | null = null; try { saved = localStorage.getItem('holdout-lab-q') as Q | null } catch {}
 const QN: Q = (qp && QS[qp]) ? qp : (saved && QS[saved]) ? saved : mobile ? 'med' : 'high';
 const C = QS[QN];
+const MAP = (new URLSearchParams(location.search).get('map') || 'i95') as 'i95' | 'metro';
 
 const $ = (id: string) => document.getElementById(id)!;
 const status = (t: string) => { $('st').textContent = t };
@@ -31,7 +32,7 @@ const scene = new Scene(engine);
 scene.useRightHandedSystem = true; // tiles + game use right-handed y-up: game (x,z) maps 1:1
 const FOG = new Color3(0.56, 0.60, 0.63);
 scene.clearColor = new Color4(FOG.r, FOG.g, FOG.b, 1);
-scene.fogMode = Scene.FOGMODE_EXP2; scene.fogDensity = 0.0105; scene.fogColor = FOG;
+scene.fogMode = Scene.FOGMODE_EXP2; scene.fogDensity = MAP === 'i95' ? 0.0055 : 0.0105; scene.fogColor = FOG;
 scene.skipPointerMovePicking = true;
 
 // ── Sky / environment: overcast HDRI ──────────────────────────────────────────
@@ -172,7 +173,7 @@ function applyMat(mesh: AbstractMesh) {
 }
 
 // Babylon 9 + 3DTilesRendererJS: real 3D Tiles traversal (SSE-driven LOD, REPLACE refine, LRU cache)
-let tiles: TilesRenderer;
+let tiles: TilesRenderer | null = null;
 let tilesBusy = true;
 function prepTileMesh(mesh: AbstractMesh) {
   if (!(mesh instanceof Mesh) || !mesh.getTotalVertices()) return;
@@ -198,9 +199,37 @@ function startTiles() {
 }
 const tilesSettled = (max = 25000) => new Promise<void>(res => { const t0 = performance.now(); const t = setInterval(() => { if (!tilesBusy || performance.now() - t0 > max) { clearInterval(t); res() } }, 250) });
 
-function groundY(x: number, z: number) {
-  const hit = scene.pickWithRay(new Ray(new Vector3(x, 40, z), new Vector3(0, -1, 0), 80), m => tileMeshes.includes(m));
+function groundY(x: number, z: number, from = MAP === 'i95' ? 200 : 40) {
+  const hit = scene.pickWithRay(new Ray(new Vector3(x, from, z), new Vector3(0, -1, 0), from + 80), m => tileMeshes.includes(m) && m.isEnabled() && ![2, 3].includes((m.material as any)?.transparencyMode));
   return hit?.hit ? hit.pickedPoint!.y : 0;
+}
+
+// ── I-95 interchange: the authored map as-is; preview textures first, full AI-upscaled KTX2 after ──
+async function loadI95() {
+  const c = await LoadAssetContainerAsync(i95url('i95_lo.glb'), scene, { pluginExtension: '.glb' });
+  c.addAllToScene();
+  for (const m of c.meshes) if (m instanceof Mesh && m.getTotalVertices()) {
+    m.receiveShadows = true; csm.addShadowCaster(m, false); m.isPickable = true; m.freezeWorldMatrix(); tileMeshes.push(m);
+    if (m.material instanceof PBRMaterial) m.material.maxSimultaneousLights = 2;
+  }
+  libKind = 'lo'; refreshHud();
+}
+declare const __I95V__: Record<string, string>;
+const i95url = (f: string) => '/assets/i95/' + f + '?v=' + (__I95V__[f] || '0');   // /assets is immutable-cached: version every URL
+let hdDone = 0;
+async function upgradeI95() {
+  // full-res (AI-upscaled, KTX2) split in 3 parts; each part swaps in as soon as it lands
+  await Promise.all([0, 1, 2].map(async k => {
+    const c = await LoadAssetContainerAsync(i95url(`i95_hd${k}.glb`), scene, { pluginExtension: '.glb' });
+    const hi = new Map<string, Material>(); for (const m of c.materials) { hi.set(m.name, m); scene.addMaterial(m); (m as PBRMaterial).maxSimultaneousLights = 2 }
+    for (const t of c.textures) scene.addTexture(t);
+    const old = new Set<Material>();
+    for (const m of tileMeshes) { const h = m.material && hi.get(m.material.name); if (h && h !== m.material) { old.add(m.material!); m.material = h } }
+    for (const m of c.meshes) m.dispose();
+    for (const m of old) if (!m.getBindedMeshes().length) m.dispose(true, true);
+    hdDone++; status(hdDone < 3 ? `loading full-res textures ${hdDone}/3…` : '');
+  }));
+  libKind = 'ktx2'; refreshHud();
 }
 
 // ── Operator ──────────────────────────────────────────────────────────────────
@@ -228,15 +257,24 @@ async function loadOperator(x: number, z: number, yaw: number) {
 }
 
 // ── Shots (also used by the test harness) ────────────────────────────────────
-const STREET = { x: 89, z: 133 };
-const SHOTS = [
+const STREET = MAP === 'i95' ? { x: -215.4, z: -62.6 } : { x: 89, z: 133 };
+// absolute heights (abs: true) — the expressway runs in a trench under overpasses, so no top-down raycast
+const SHOTS_I95 = [
+  { name: 'Avenue', p: [-212.5, 4.8, -92], t: [-214, 5.6, 40], abs: true },
+  { name: 'Operator', p: [-213.2, 4.5, -64.6], t: [-211.0, 4.3, -60.8], abs: true },
+  { name: 'Side street', p: [-389, 4.9, -95], t: [-390, 5.5, 60], abs: true },
+  { name: 'Expressway', p: [-70, -12.8, -21], t: [60, -12.2, -29], abs: true },
+  { name: 'Overlook', p: [-280, 45, -200], t: [-60, 0, -20], abs: true },
+];
+const SHOTS = MAP === 'i95' ? SHOTS_I95 : [
   { name: 'Street east', p: [80, 1.7, 131.2], t: [140, 2.6, 134] },
   { name: 'Operator',    p: [91.4, 1.35, 131.4], t: [93.4, 1.25, 134.6] },
   { name: 'Street west', p: [100, 1.75, 135], t: [40, 3.0, 132] },
   { name: 'Overlook', p: [62, 9, 133], t: [100, 0, 133.5] },
 ];
 function shot(i: number) {
-  const s = SHOTS[i % SHOTS.length];
+  const s: any = SHOTS[i % SHOTS.length];
+  if (s.abs) { cam.position.set(s.p[0], s.p[1], s.p[2]); cam.setTarget(new Vector3(s.t[0], s.t[1], s.t[2])); return }
   const gy = groundY(s.p[0], s.p[2]);
   cam.position.set(s.p[0], gy + s.p[1], s.p[2]);
   cam.setTarget(new Vector3(s.t[0], groundY(s.t[0], s.t[2]) + s.t[1], s.t[2]));
@@ -263,17 +301,18 @@ scene.onBeforeRenderObservable.add(() => {
 (async () => {
   refreshHud();
   status('loading textures…');
-  await loadLib('lo');
-  startTiles();
-  (window as any).__lab = { scene, engine, cam, shot, q: QN, ready: false, lib: () => libKind, tiles: () => tileMeshes.length, busy: () => tilesBusy, settled: tilesSettled, groundY, renderer: () => tiles };
+  if (MAP === 'i95') await loadI95(); else { await loadLib('lo'); startTiles() }
+  if (MAP === 'i95') tilesBusy = false;
+  (window as any).__lab = { scene, engine, cam, shot, q: QN, ready: false, lib: () => libKind, tiles: () => tileMeshes.length, busy: () => tilesBusy, settled: tilesSettled, groundY, look: (p: number[], t: number[], fov = 1.0) => { cam.position.set(p[0], p[1], p[2]); cam.setTarget(new Vector3(t[0], t[1], t[2])); cam.fov = fov }, place: (x: number, z: number, yaw: number) => { if (op) { const gy = groundY(x, z); op.position.set(x, gy, z); op.rotation.y = yaw } }, renderer: () => tiles };
   shot(0);
   engine.runRenderLoop(() => scene.render());
   status('streaming district…');
   await tilesSettled();
   shot(0);
-  await loadOperator(STREET.x + 4.2, STREET.z + 2.8, -2.4);
+  await loadOperator(MAP === 'i95' ? STREET.x + 4.2 : STREET.x + 4.2, MAP === 'i95' ? STREET.z + 2.6 : STREET.z + 2.8, MAP === 'i95' ? 3.6 : -2.4);
   status('');
-  if (C.lib === 'ktx2') { status('upgrading textures (KTX2)…'); await loadLib('ktx2'); status('') }
+  if (MAP === 'i95') { if (QN !== 'low') { status('loading full-res textures…'); await upgradeI95(); status('') } }
+  else if (C.lib === 'ktx2') { status('upgrading textures (KTX2)…'); await loadLib('ktx2'); status('') }
   await scene.whenReadyAsync();
   (window as any).__lab.ready = true;
 })().catch(e => { console.error(e); status('error: ' + (e?.message || e)) });
