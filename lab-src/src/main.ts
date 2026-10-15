@@ -36,7 +36,7 @@ scene.fogMode = Scene.FOGMODE_EXP2; scene.fogDensity = MAP === 'i95' ? 0.0055 : 
 scene.skipPointerMovePicking = true;
 
 // ── Sky / environment: overcast HDRI ──────────────────────────────────────────
-const env = new HDRCubeTexture('assets/sky.hdr', scene, 512, false, true, false, true);
+const env = new HDRCubeTexture('/lab/assets/sky.hdr', scene, 512, false, true, false, true);
 scene.environmentTexture = env; scene.environmentIntensity = 0.85;
 const sky = scene.createDefaultSkybox(env, true, 1500, 0.35, false)!;
 sky.applyFog = false; sky.infiniteDistance = true;
